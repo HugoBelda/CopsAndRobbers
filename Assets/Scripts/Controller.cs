@@ -5,7 +5,7 @@ using UnityEngine.UI;
 
 public class Controller : MonoBehaviour
 {
-    //GameObjects
+    // GameObjects
     public GameObject board;
     public GameObject[] cops = new GameObject[2];
     public GameObject robber;
@@ -13,7 +13,7 @@ public class Controller : MonoBehaviour
     public Text finalMessage;
     public Button playAgainButton;
 
-    //Otras variables
+    // Otras variables
     Tile[] tiles = new Tile[Constants.NumTiles];
     private int roundCount = 0;
     private int state;
@@ -27,13 +27,12 @@ public class Controller : MonoBehaviour
         state = Constants.Init;
     }
 
-    //Rellenamos el array de casillas y posicionamos las fichas
+    // Rellenamos el array de casillas y posicionamos las fichas
     void InitTiles()
     {
         for (int fil = 0; fil < Constants.TilesPerRow; fil++)
         {
             GameObject rowchild = board.transform.GetChild(fil).gameObject;
-
             for (int col = 0; col < Constants.TilesPerRow; col++)
             {
                 GameObject tilechild = rowchild.transform.GetChild(col).gameObject;
@@ -49,7 +48,6 @@ public class Controller : MonoBehaviour
     public void InitAdjacencyLists()
     {
         int[,] matriz = new int[Constants.NumTiles, Constants.NumTiles];
-
         for (int i = 0; i < Constants.NumTiles; i++)
         {
             for (int j = 0; j < Constants.NumTiles; j++)
@@ -84,8 +82,7 @@ public class Controller : MonoBehaviour
         }
     }
 
-
-    //Reseteamos cada casilla: color, padre, distancia y visitada
+    // Reseteamos cada casilla: color, padre, distancia y visitada
     public void ResetTiles()
     {
         foreach (Tile tile in tiles)
@@ -119,7 +116,6 @@ public class Controller : MonoBehaviour
         switch (state)
         {
             case Constants.CopSelected:
-                //Si es una casilla roja, nos movemos
                 if (tiles[clickedTile].selectable)
                 {
                     cops[clickedCop].GetComponent<CopMove>().MoveToTile(tiles[clickedTile]);
@@ -128,7 +124,6 @@ public class Controller : MonoBehaviour
 
                     state = Constants.TileSelected;
                 }
-
                 break;
             case Constants.TileSelected:
                 state = Constants.Init;
@@ -159,28 +154,126 @@ public class Controller : MonoBehaviour
                 break;
         }
     }
+
     public void RobberTurn()
     {
-        clickedTile = robber.GetComponent<RobberMove>().currentTile;
-        tiles[clickedTile].current = true;
-        FindSelectableTiles(false);
+        int currentTile = robber.GetComponent<RobberMove>().currentTile;
+        tiles[currentTile].current = true;
 
-        List<int> selectableTiles = new List<int>();
-        for (int i = 0; i < Constants.NumTiles; i++)
+        List<int> reachableTiles = FindReachableTiles(currentTile);
+
+        int maxDistance = -1;
+        int bestTile = currentTile;
+
+        foreach (int tile in reachableTiles)
         {
-            if (tiles[i].selectable)
+            int distanceToClosestCop = CalculateDistanceToClosestCop(tile);
+            if (distanceToClosestCop > maxDistance)
             {
-                selectableTiles.Add(i);
+                maxDistance = distanceToClosestCop;
+                bestTile = tile;
             }
         }
 
-        int randomIndex = Random.Range(0, selectableTiles.Count);
-        int randomTileIndex = selectableTiles[randomIndex];
-        robber.GetComponent<RobberMove>().MoveToTile(tiles[randomTileIndex]);
-        robber.GetComponent<RobberMove>().currentTile = tiles[randomTileIndex].numTile;
-        
+        robber.GetComponent<RobberMove>().MoveToTile(tiles[bestTile]);
+        robber.GetComponent<RobberMove>().currentTile = bestTile;
     }
 
+    private List<int> FindReachableTiles(int startTile)
+    {
+        List<int> reachableTiles = new List<int>();
+
+        Queue<Tile> nodes = new Queue<Tile>();
+        tiles[startTile].visited = true;
+        nodes.Enqueue(tiles[startTile]);
+
+        while (nodes.Count > 0)
+        {
+            Tile currentNode = nodes.Dequeue();
+            reachableTiles.Add(currentNode.numTile);
+
+            foreach (int adjacentIndex in currentNode.adjacency)
+            {
+                Tile adjacentTile = tiles[adjacentIndex];
+                if (!adjacentTile.visited)
+                {
+                    adjacentTile.visited = true;
+                    adjacentTile.parent = currentNode;
+                    adjacentTile.distance = currentNode.distance + 1;
+
+                    if (adjacentTile.distance <= Constants.Distance)
+                    {
+                        nodes.Enqueue(adjacentTile);
+                    }
+                }
+            }
+        }
+
+        ResetVisitedTiles();
+
+        return reachableTiles;
+    }
+
+    private int CalculateDistanceToClosestCop(int startTile)
+    {
+        int minDistance = int.MaxValue;
+
+        foreach (GameObject cop in cops)
+        {
+            int copTile = cop.GetComponent<CopMove>().currentTile;
+            int distance = BFS(startTile, copTile);
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+            }
+        }
+
+        return minDistance;
+    }
+
+    private int BFS(int startTile, int targetTile)
+    {
+        Queue<Tile> nodes = new Queue<Tile>();
+        tiles[startTile].visited = true;
+        tiles[startTile].distance = 0;
+        nodes.Enqueue(tiles[startTile]);
+
+        while (nodes.Count > 0)
+        {
+            Tile currentNode = nodes.Dequeue();
+
+            if (currentNode.numTile == targetTile)
+            {
+                int distance = currentNode.distance;
+                ResetVisitedTiles();
+                return distance;
+            }
+
+            foreach (int adjacentIndex in currentNode.adjacency)
+            {
+                Tile adjacentTile = tiles[adjacentIndex];
+                if (!adjacentTile.visited)
+                {
+                    adjacentTile.visited = true;
+                    adjacentTile.distance = currentNode.distance + 1;
+                    nodes.Enqueue(adjacentTile);
+                }
+            }
+        }
+
+        ResetVisitedTiles();
+        return int.MaxValue; 
+    }
+
+    private void ResetVisitedTiles()
+    {
+        foreach (Tile tile in tiles)
+        {
+            tile.visited = false;
+            tile.distance = 0;
+            tile.parent = null;
+        }
+    }
 
     public void EndGame(bool end)
     {
@@ -228,10 +321,8 @@ public class Controller : MonoBehaviour
         else
             indexCurrentTile = robber.GetComponent<RobberMove>().currentTile;
 
-        // La ponemos rosa porque acabamos de hacer un reset
         tiles[indexCurrentTile].current = true;
 
-        // Cola para el BFS
         Queue<Tile> nodes = new Queue<Tile>();
         nodes.Enqueue(tiles[indexCurrentTile]);
 
@@ -250,8 +341,8 @@ public class Controller : MonoBehaviour
                         continue;
                     }
 
-                    if (!cop && adjacentTile.numTile == cops[0].GetComponent<CopMove>().currentTile ||
-                        adjacentTile.numTile == cops[1].GetComponent<CopMove>().currentTile)
+                    if (!cop && (adjacentTile.numTile == cops[0].GetComponent<CopMove>().currentTile ||
+                        adjacentTile.numTile == cops[1].GetComponent<CopMove>().currentTile))
                     {
                         continue;
                     }
@@ -273,3 +364,4 @@ public class Controller : MonoBehaviour
         }
     }
 }
+
